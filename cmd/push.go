@@ -12,6 +12,7 @@ import (
 
 var (
 	userCreds string
+	service   string
 	interval  int
 )
 
@@ -25,12 +26,13 @@ var pushCmd = &cobra.Command{
 func init() {
 	pushCmd.Flags().StringVarP(&userCreds, "creds", "c", "", "nsc path to user creds (nsd://<operator>/<account>/<user>")
 	pushCmd.Flags().IntVarP(&interval, "interval", "i", 1, "how often to push new message in seconds")
+	pushCmd.Flags().StringVarP(&service, "service", "s", "", "nats URL")
 	pushCmd.MarkFlagRequired("creds")
 	GetRootCommand().AddCommand(pushCmd)
 }
 
 func Push(cmd *cobra.Command, args []string) error {
-	p, err := pusher.New(args[0], userCreds, interval)
+	p, err := pusher.New(args[0], userCreds, service, interval)
 	if err != nil {
 		return err
 	}

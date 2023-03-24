@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -45,30 +46,40 @@ type FakeOrder struct {
 	Order  *Order  `json:"order"`
 }
 
-func New(stream, user string, interval int) (*Pusher, error) {
-	if !strings.HasPrefix(user, "nsc://") {
-		return nil, errors.New("must provide user as nsc://<operator>/<account>/<user>")
-	}
+func New(stream, user, service string, interval int) (*Pusher, error) {
+	var cresdsFile string
+	if strings.HasPrefix(user, "nsc://") {
+		path, err := exec.LookPath("nsc")
+		if err != nil {
+			return nil, fmt.Errorf("nsc required: %w", err)
+		}
 
-	path, err := exec.LookPath("nsc")
-	if err != nil {
-		return nil, fmt.Errorf("nsc required: %w", err)
-	}
+		cmd := exec.Command(path, "generate", "profile", user)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return nil, fmt.Errorf("nsc invoke failed: %s", string(out))
+		}
 
-	cmd := exec.Command(path, "generate", "profile", user)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return nil, fmt.Errorf("nsc invoke failed: %s", string(out))
-	}
+		var creds nscCreds
+		err = json.Unmarshal(out, &creds)
+		if err != nil {
+			return nil, fmt.Errorf("nsc parse error: %s", err)
+		}
 
-	var creds nscCreds
-	err = json.Unmarshal(out, &creds)
-	if err != nil {
-		return nil, fmt.Errorf("nsc parse error: %s", err)
-	}
+		if len(creds.Operator.Service) == 0 {
+			return nil, errors.New("no services defined for operator")
+		}
 
-	if len(creds.Operator.Service) == 0 {
-		return nil, errors.New("no services defined for operator")
+		cresdsFile = creds.UserCreds
+
+		// prefer the service definition in the operator
+		service = strings.Join(creds.Operator.Service, ",")
+	} else {
+		if _, err := os.Stat(user); err != nil {
+			return nil, fmt.Errorf("unable to open creds file: %s", err.Error())
+		}
+
+		cresdsFile = user
 	}
 
 	if interval == 0 {
@@ -76,10 +87,10 @@ func New(stream, user string, interval int) (*Pusher, error) {
 	}
 
 	return &Pusher{
-		natsUrl:   strings.Join(creds.Operator.Service, ","),
+		natsUrl:   service,
 		stream:    stream,
 		interval:  interval,
-		userCreds: creds.UserCreds,
+		userCreds: cresdsFile,
 		work:      make(chan struct{}),
 	}, nil
 }
